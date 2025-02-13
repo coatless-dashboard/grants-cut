@@ -4,6 +4,9 @@ format:
   dashboard:
     theme: cosmo
     orientation: rows
+    nav-buttons:
+      - icon: github
+        href: https://github.com/coatless-dashboard/nsf-grant-cuts
 ---
 
 ```{r}
@@ -467,6 +470,8 @@ Senate Commerce Committee database and is available at:
 [Senate Commerce Committee Database](https://www.commerce.senate.gov/index.cfm?a=files.serve&File_id=94060590-F32F-4944-8810-300E6766B1D6)
 
 For more information about the investigation and findings, see the [official press release](https://www.commerce.senate.gov/2025/2/cruz-led-investigation-uncovers-2-billion-in-woke-dei-grants-at-nsf-releases-full-database).
+
+For the source code and more information, visit the [GitHub repository](https://github.com/coatless-dashboard/nsf-grant-cuts).
 :::
 
 
