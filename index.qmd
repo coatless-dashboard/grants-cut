@@ -25,7 +25,7 @@ library(viridis)
 library(eulerr)
 
 # Read and process data
-grants_data <- readxl::read_excel("Public Database_Release (1) (1).xlsx") 
+grants_data <- readxl::read_excel("data/Public Database_Release (1) (1).xlsx") 
 
 # Clean up column names
 names(grants_data) <- make.names(names(grants_data))
@@ -81,9 +81,9 @@ states_with_data <- us_states_shifted |>
 # https://www.irs.gov/statistics/soi-tax-stats-gross-collections-by-type-of-tax-and-state-irs-data-book-table-5
 # https://www.irs.gov/pub/irs-soi/23dbs01t05co.xlsx
 
-tax_contributions <- read_xlsx("23dbs01t05co.xlsx", skip = 6, col_names = c("State", "2", "3", "TotalIndividual", "5", "6", "7", "8", "9", "10", "11", "12")) |>
-  select(State, TotalIndividual) |>
-  slice(c(1:51, 53)) |>
+tax_contributions <- readxl::read_xlsx("data/23dbs01t05co.xlsx", skip = 6, col_names = c("State", "2", "3", "TotalIndividual", "5", "6", "7", "8", "9", "10", "11", "12")) |>
+  dplyr::select(State, TotalIndividual) |>
+  dplyr::slice(c(1:51, 53)) |>
   dplyr::mutate(NAME = toupper(State))
 
 tax_total <- sum(tax_contributions$TotalIndividual)
@@ -94,13 +94,13 @@ tax_contributions <- tax_contributions |>
 
 states_with_data <- left_join(states_with_data, tax_contributions[, c("NAME", "percent_of_individual_federal_taxes_contributed")])
 
-population <- read_xlsx("NST-EST2024-POP.xlsx", skip = 9, col_names = c("State", "est", "2020", "2021","2022","2023", "est_population")) |>
-  select(State, est_population) |>
-  slice(1:52) |>
-  filter(!is.na(State)) |>
-  mutate(
+population <- readxl::read_xlsx("data/NST-EST2024-POP.xlsx", skip = 9, col_names = c("State", "est", "2020", "2021","2022","2023", "est_population")) |>
+  dplyr::select(State, est_population) |>
+  dplyr::slice(1:52) |>
+  dplyr::filter(!is.na(State)) |>
+  dplyr::mutate(
     NAME = toupper(State),
-    NAME = str_remove_all(NAME, "\\.")
+    NAME = stringr::str_remove_all(NAME, "\\.")
     )
 
 pop_total <- sum(population$est_population)
