@@ -16,7 +16,9 @@ Imports:
    maps,
    mapproj,
    viridis,
-   eulerr
+   eulerr,
+   tigris,
+   sf
 License: AGPL (>= 3)
 Encoding: UTF-8
 VignetteBuilder: quarto
