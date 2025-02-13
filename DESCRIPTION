@@ -1,0 +1,21 @@
+Package: NSFCuts
+Title: Overview of NSF Grants Cut
+Version: 0.1.0
+Authors@R: 
+    person("James Joseph", "Balamuta", , "james.balamuta@gmail.com", role = c("aut", "cre"))
+Description: A dashboard to visualize the impact of NSF grant cuts on research.
+URL: https://dashboard.thecoatlessprofessor.com/grant-cuts/, https://github.com/coatless-dashboard/grants-cut
+BugReports: https://github.com/coatless-dashboard/grants-cut/issues
+Imports: 
+   tidyverse,
+   DT,
+   scales,
+   bslib,
+   readxl,
+   plotly,
+   maps,
+   mapproj,
+   viridis
+License: AGPL (>= 3)
+Encoding: UTF-8
+VignetteBuilder: quarto
