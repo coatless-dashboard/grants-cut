@@ -4,6 +4,7 @@ format:
   dashboard:
     theme: cosmo
     orientation: rows
+    self-contained: true
     nav-buttons:
       - icon: github
         href: https://github.com/coatless-dashboard/nsf-grant-cuts
@@ -24,7 +25,7 @@ library(viridis)
 library(eulerr)
 
 # Read and process data
-grants_data <- readxl::read_excel("Public Database_Release (1) (1).xlsx") 
+grants_data <- readxl::read_excel("data/Public Database_Release (1) (1).xlsx") 
 
 # Clean up column names
 names(grants_data) <- make.names(names(grants_data))
@@ -63,14 +64,54 @@ all_regions_funding <- grants_data |>
   )
 
 # Get states with AK and HI shifted
-us_states <- states(cb = TRUE, resolution = "20m")
-us_states_shifted <- shift_geometry(us_states) |>
+us_states <- tigris::states(cb = TRUE, resolution = "20m")
+us_states_shifted <- tigris::shift_geometry(us_states) |>
   dplyr::mutate(NAME = toupper(NAME))  # Convert state name to uppercase
 
 
 # Join with funding data
 states_with_data <- us_states_shifted |>
-  left_join(all_regions_funding, by = c("NAME" = "RECIPIENT.STATE"))
+  dplyr::left_join(all_regions_funding, by = c("NAME" = "RECIPIENT.STATE"))
+
+# Download population data from 
+# https://www.census.gov/data/tables/time-series/demo/popest/2020s-state-total.html
+# https://www2.census.gov/programs-surveys/popest/tables/2020-2024/state/totals/NST-EST2024-POP.xlsx
+
+# Download tax collections by state from IRS
+# https://www.irs.gov/statistics/soi-tax-stats-gross-collections-by-type-of-tax-and-state-irs-data-book-table-5
+# https://www.irs.gov/pub/irs-soi/23dbs01t05co.xlsx
+
+tax_contributions <- readxl::read_xlsx("data/23dbs01t05co.xlsx", skip = 6, col_names = c("State", "2", "3", "TotalIndividual", "5", "6", "7", "8", "9", "10", "11", "12")) |>
+  dplyr::select(State, TotalIndividual) |>
+  dplyr::slice(c(1:51, 53)) |>
+  dplyr::mutate(NAME = toupper(State))
+
+tax_total <- sum(tax_contributions$TotalIndividual)
+tax_contributions <- tax_contributions |>
+  dplyr::mutate(
+    percent_of_individual_federal_taxes_contributed = round((TotalIndividual / tax_total) * 100, 3)
+  )
+
+states_with_data <- dplyr::left_join(states_with_data, tax_contributions[, c("NAME", "percent_of_individual_federal_taxes_contributed")])
+
+population <- readxl::read_xlsx("data/NST-EST2024-POP.xlsx", skip = 9, col_names = c("State", "est", "2020", "2021","2022","2023", "est_population")) |>
+  dplyr::select(State, est_population) |>
+  dplyr::slice(1:52) |>
+  dplyr::filter(!is.na(State)) |>
+  dplyr::mutate(
+    NAME = toupper(State),
+    NAME = stringr::str_remove_all(NAME, "\\.")
+    )
+
+pop_total <- sum(population$est_population)
+population <- population |>
+  dplyr::mutate(
+    percent_of_pop = round((est_population / pop_total) * 100, 3)
+  )
+
+states_with_data <- dplyr::left_join(states_with_data, population[, c("NAME", "percent_of_pop")])
+
+
 ```
 
 # Funding Overview
@@ -134,37 +175,45 @@ list(
 #| label: "lost-funding-geographic-distribution"
 
 # Create the map
-p <- ggplot(states_with_data) +
-  aes(fill = total_funding,
-      text = paste0(
-        NAME, "\n",
-        "Share of Total Cuts: ", scales::percent(percent_of_cuts/100, accuracy = 0.1),
-        "\nShare of Total Grants: ", scales::percent(percent_of_grants/100, accuracy = 0.1),
-        "\nRelative Impact: ", scales::number(relative_impact, accuracy = 0.1),
-        "\nTotal Funding Cut: ", scales::dollar(total_funding),
-        "\nNumber of Grants: ", count
+p <- plotly::plot_geo(states_with_data,
+      locationmode = 'USA-states',
+      locations = ~STUSPS    # Changed to use your STUSPS column
+    ) |>
+      plotly::add_trace(    
+        z = ~(total_funding/1e6), # Divide by 1e6 to convert to millions directly
+        text = ~paste0(
+          NAME, "\n",
+          "Share of Total Cuts: ", scales::percent(percent_of_cuts/100, accuracy = 0.1),
+          "\nShare of Total Grants: ", scales::percent(percent_of_grants/100, accuracy = 0.1),
+          "\nRelative Impact: ", scales::number(relative_impact, accuracy = 0.1),
+          "\nTotal Funding Cut: ", scales::dollar(total_funding),
+          "\nPercent Individual Fed Taxes Contributed: ", 
+          scales::percent(percent_of_individual_federal_taxes_contributed/100, accuracy = 0.1),
+          "\nPercent US Population: ", scales::percent(percent_of_pop/100, accuracy = 0.1),
+          "\nNumber of Grants: ", count
+        ),
+        hoverinfo = 'text',
+        colorscale = 'Viridis'
+      ) |>
+      plotly::layout(
+        geo = list(scope = 'usa'),
+        title = "Financial Impact of Research Funding Cuts"
+      ) |>
+      plotly::colorbar(
+        title = "Financial Impact",
+        tickprefix = "$",
+        ticksuffix = "M",
+        tickformat = ".1f",
+        transforms = list(
+          list(
+            type = 'function',
+            func = 'function(x) { return x/1e6; }'
+          )
+        )
       )
-  ) + 
-  geom_sf() +
-  viridis::scale_fill_viridis(
-    labels = function(x) paste0("$", round(x/1e6, 1), "M"),
-    name = "Financial\nImpact",
-    na.value = "grey90"
-  ) +
-  theme_void() +
-  theme(
-    legend.position = "right",
-    axis.line.x = element_blank(),
-    axis.line.y = element_blank(),
-    axis.text.x = element_blank(),
-    axis.text.y = element_blank(),
-    axis.title.x = element_blank(),
-    axis.title.y = element_blank()
-  ) +
-  labs(title = "Financial Impact of Research Funding Cuts")
 
-# Make interactive
-plotly::ggplotly(p, tooltip = "text")
+p
+
 ```
 
 
@@ -174,36 +223,35 @@ plotly::ggplotly(p, tooltip = "text")
 #| label: "lost-funding-relative-impact"
 
 # Create the map
-p <- ggplot(states_with_data) +
-  geom_sf(aes(fill = relative_impact,
-              text = paste0(
-                NAME, "\n",
-                "Share of Total Cuts: ", scales::percent(percent_of_cuts/100, accuracy = 0.1),
-                "\nShare of Total Grants: ", scales::percent(percent_of_grants/100, accuracy = 0.1),
-                "\nRelative Impact: ", scales::number(relative_impact, accuracy = 0.1),
-                "\nTotal Funding Cut: ", scales::dollar(total_funding),
-                "\nNumber of Grants: ", count
-              ))) +
-  viridis::scale_fill_viridis(
-    labels = scales::number_format(accuracy = 0.1),
-    name = "Relative\nImpact",
-    na.value = "grey90"
-  ) +
-  theme_void() +
-  theme(
-    legend.position = "right",
-    axis.line.x = element_blank(),
-    axis.line.y = element_blank(),
-    axis.text.x = element_blank(),
-    axis.text.y = element_blank(),
-    axis.title.x = element_blank(),
-    axis.title.y = element_blank()
-  ) +
-  labs(title = "Relative Impact of Research Funding Cuts",
-       subtitle = "Values > 1 indicate states taking larger cuts relative to their grant count")
+p <- plotly::plot_geo(states_with_data,
+      locationmode = 'USA-states',
+      locations = ~STUSPS    # Changed to use your STUSPS column
+    ) |>
+      plotly::add_trace(
+        z = ~relative_impact,
+        text = ~paste0(
+          NAME, "\n",
+          "Share of Total Cuts: ", scales::percent(percent_of_cuts/100, accuracy = 0.1),
+          "\nShare of Total Grants: ", scales::percent(percent_of_grants/100, accuracy = 0.1),
+          "\nRelative Impact: ", scales::number(relative_impact, accuracy = 0.1),
+          "\nTotal Funding Cut: ", scales::dollar(total_funding),
+          "\nPercent Individual Fed Taxes Contributed: ", 
+          scales::percent(percent_of_individual_federal_taxes_contributed/100, accuracy = 0.1),
+          "\nPercent US Population: ", scales::percent(percent_of_pop/100, accuracy = 0.1),
+          "\nNumber of Grants: ", count
+        ),
+        hoverinfo = 'text',
+        colorscale = 'Viridis'
+      ) |>
+      plotly::layout(
+        geo = list(scope = 'usa'),
+        title = "Relative Impact of Research Funding Cuts"
+      ) |>
+      plotly::colorbar(
+        title = "Relative Impact"
+      )
 
-# Make interactive
-plotly::ggplotly(p, tooltip = "text")
+p
 ```
 
 # Institutions
@@ -467,7 +515,7 @@ Following an Executive Order requiring termination of DEI programs across federa
 
 The data presented in this dashboard comes from the official 
 Senate Commerce Committee database and is available at:
-[Senate Commerce Committee Database](https://www.commerce.senate.gov/index.cfm?a=files.serve&File_id=94060590-F32F-4944-8810-300E6766B1D6)
+[Senate Commerce Committee Database](https://www.commerce.senate.gov/index.cfm?a=files.serve&File_id=94060590-F32F-4944-8810-300E6766B1D6). Supplemental data sources include: [U.S. Census Population Estimates (2020-2024)](https://www.census.gov/data/tables/time-series/demo/popest/2020s-state-total.html) and [IRS Tax Collections (2023)](https://www.irs.gov/statistics/soi-tax-stats-gross-collections-by-type-of-tax-and-state-irs-data-book-table-5).
 
 For more information about the investigation and findings, see the [official press release](https://www.commerce.senate.gov/2025/2/cruz-led-investigation-uncovers-2-billion-in-woke-dei-grants-at-nsf-releases-full-database).
 
