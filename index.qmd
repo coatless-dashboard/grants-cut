@@ -1,0 +1,149 @@
+---
+title: "Lost NSF Funding"
+format: 
+  dashboard:
+    theme: cosmo
+---
+
+```{r setup, include=FALSE}
+# Load required packages with explicit namespace calls
+library(tidyverse)
+library(DT)
+library(scales)
+library(bslib)
+library(readxl)
+library(plotly)
+library(maps)
+library(viridis)
+
+# Read and process data
+grants_data <- readxl::read_excel("Public Database_Release (1) (1).xlsx") 
+
+# Clean up column names
+names(grants_data) <- make.names(names(grants_data))
+
+# Clean up categorical variables
+grants_data <- grants_data |>
+  # Remove the last row with totals
+  dplyr::slice(1:(dplyr::n()-1)) |>
+  # Remove Status Category
+  dplyr::select(-STATUS.CATEGORY)
+
+
+# Clean and convert dates and monetary values
+grants_data <- grants_data |>
+  dplyr::mutate(
+    TOTAL.AWARD.FUNDING.AMOUNT = as.numeric(gsub("[\\$,]", "", TOTAL.AWARD.FUNDING.AMOUNT)),
+    AWARD.ACTION.DATE = as.Date(AWARD.ACTION.DATE),
+    PERFORMANCE.START.DATE = as.Date(PERFORMANCE.START.DATE),
+    PERFORMANCE.END.DATE = as.Date(PERFORMANCE.END.DATE),
+    PROJECT.DURATION = as.numeric(difftime(PERFORMANCE.END.DATE, PERFORMANCE.START.DATE, units = "days")/30)
+  )
+
+# Get US state map data
+us_states <- map_data("state")
+```
+
+# Funding Overview {orientation="rows"}
+
+::: {.card}
+This dashboard analyzes NSF grants that have lost funding. Use the interactive visualizations 
+to explore funding patterns across institutions, categories, and geographic regions.
+:::
+
+
+## Column {width=70%}
+
+```{r}
+#| content: valuebox
+#| title: "Total Funding Lost"
+list(
+  icon = "bank",
+  color = "danger",
+  value = scales::dollar(sum(grants_data$TOTAL.AWARD.FUNDING.AMOUNT, na.rm = TRUE))
+)
+```
+
+```{r}
+#| content: valuebox
+#| title: "Total Grants Affected"
+list(
+  icon = "file-earmark-text",
+  color = "warning",
+  value = format(nrow(grants_data), big.mark = ",")
+)
+```
+
+```{r}
+#| content: valuebox
+#| title: "Average Grant Size"
+list(
+  icon = "calculator",
+  color = "info",
+  value = scales::dollar(mean(grants_data$TOTAL.AWARD.FUNDING.AMOUNT, na.rm = TRUE))
+)
+```
+
+## Column {height=85%}
+
+```{r}
+#| title: "Geographic Distribution of Lost Funding"
+# Prepare state-level funding data
+state_funding <- grants_data |>
+  dplyr::group_by(RECIPIENT.STATE) |>
+  dplyr::summarise(
+    total_funding = sum(TOTAL.AWARD.FUNDING.AMOUNT, na.rm = TRUE),
+    count = dplyr::n()
+  ) |>
+  dplyr::mutate(state = tolower(RECIPIENT.STATE))
+
+# Join with map data
+state_map_data <- dplyr::left_join(us_states, state_funding, by = c("region" = "state"))
+
+# Create base map
+p <- ggplot2::ggplot() +
+  ggplot2::geom_polygon(data = state_map_data,
+                        ggplot2::aes(x = long, y = lat, group = group,
+                                   fill = total_funding,
+                                   text = paste0(stringr::str_to_title(region), "\n",
+                                               "Total Funding: ", scales::dollar(total_funding),
+                                               "\nGrants: ", count))) +
+  ggplot2::coord_map() +
+  viridis::scale_fill_viridis(labels = scales::dollar_format()) +
+  ggplot2::theme_minimal() +
+  ggplot2::labs(fill = "Total Funding Lost",
+                title = "Geographic Distribution of Lost NSF Funding")
+
+
+plotly::ggplotly(p, tooltip = "text")
+```
+
+
+# Data Explorer
+
+## Row
+
+```{r}
+#| title: "Lost Funding Database"
+DT::datatable(
+  grants_data |>
+    dplyr::select(
+      AWARD.ID, RECIPIENT.NAME, RECIPIENT.STATE, 
+      TOTAL.AWARD.FUNDING.AMOUNT, NSF.FUNDING.OFFICE,
+      NSF.AWARD.TYPE, SOCIAL.JUSTICE.CATEGORY,
+      RACE.CATEGORY, GENDER.CATEGORY, 
+      ENVIRONMENTAL.JUSTICE.CATEGORY
+    ) |>
+    dplyr::arrange(dplyr::desc(TOTAL.AWARD.FUNDING.AMOUNT)),
+  options = list(
+    pageLength = 15,
+    scrollX = TRUE,
+    dom = 'Bfrtip',
+    buttons = c('copy', 'csv', 'excel')
+  ),
+  extensions = 'Buttons',
+  filter = 'top',
+  rownames = FALSE
+) |>
+  DT::formatCurrency(columns = 'TOTAL.AWARD.FUNDING.AMOUNT')
+```
