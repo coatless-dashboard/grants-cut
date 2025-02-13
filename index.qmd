@@ -178,9 +178,9 @@ list(
 p <- plot_geo(states_with_data,
       locationmode = 'USA-states',
       locations = ~STUSPS    # Changed to use your STUSPS column
-    ) %>%
-      add_trace(
-        z = ~total_funding,
+    ) |>
+      plotly::add_trace(    
+        z = ~(total_funding/1e6), # Divide by 1e6 to convert to millions directly
         text = ~paste0(
           NAME, "\n",
           "Share of Total Cuts: ", scales::percent(percent_of_cuts/100, accuracy = 0.1),
@@ -242,22 +242,13 @@ p <- plot_geo(states_with_data,
         ),
         hoverinfo = 'text',
         colorscale = 'Viridis'
-      ) %>%
-      layout(
+      ) |>
+      plotly::layout(
         geo = list(scope = 'usa'),
-        title = "Financial Impact of Research Funding Cuts"
-      ) %>%
-      colorbar(
-        title = "Financial Impact",
-        tickprefix = "$",
-        ticksuffix = "M",
-        tickformat = ".1f",
-        transforms = list(
-          list(
-            type = 'function',
-            func = 'function(x) { return x/1e6; }'
-          )
-        )
+        title = "Relative Impact of Research Funding Cuts"
+      ) |>
+      plotly::colorbar(
+        title = "Relative Impact"
       )
 
 p
