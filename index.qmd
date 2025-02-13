@@ -3,6 +3,7 @@ title: "Lost NSF Funding"
 format: 
   dashboard:
     theme: cosmo
+    orientation: rows
 ---
 
 ```{r}
@@ -15,8 +16,9 @@ library(scales)
 library(bslib)
 library(readxl)
 library(plotly)
-library(maps)
+library(tigris)
 library(viridis)
+library(eulerr)
 
 # Read and process data
 grants_data <- readxl::read_excel("Public Database_Release (1) (1).xlsx") 
@@ -42,16 +44,33 @@ grants_data <- grants_data |>
     PROJECT.DURATION = as.numeric(difftime(PERFORMANCE.END.DATE, PERFORMANCE.START.DATE, units = "days")/30)
   )
 
-# Get US state map data
-us_states <- map_data("state")
+# Calculate funding metrics
+all_regions_funding <- grants_data |>
+  dplyr::group_by(RECIPIENT.STATE) |>
+  dplyr::summarise(
+    total_funding = sum(TOTAL.AWARD.FUNDING.AMOUNT, na.rm = TRUE),
+    count = dplyr::n()
+  ) |>
+  dplyr::mutate(
+    total_all_cuts = sum(total_funding),
+    percent_of_cuts = (total_funding / total_all_cuts) * 100,
+    total_all_grants = sum(count),
+    percent_of_grants = (count / total_all_grants) * 100,
+    relative_impact = percent_of_cuts / percent_of_grants
+  )
+
+# Get states with AK and HI shifted
+us_states <- states(cb = TRUE, resolution = "20m")
+us_states_shifted <- shift_geometry(us_states) |>
+  dplyr::mutate(NAME = toupper(NAME))  # Convert state name to uppercase
+
+
+# Join with funding data
+states_with_data <- us_states_shifted |>
+  left_join(all_regions_funding, by = c("NAME" = "RECIPIENT.STATE"))
 ```
 
-# Funding Overview {orientation="rows"}
-
-## Row {height="5%"}
-
-This dashboard analyzes NSF grants that have lost funding. Use the interactive visualizations 
-to explore funding patterns across institutions, categories, and geographic regions.
+# Funding Overview
 
 ## Row {height="20%"}
 
@@ -62,7 +81,9 @@ to explore funding patterns across institutions, categories, and geographic regi
 list(
   icon = "bank",
   color = "danger",
-  value = scales::dollar(sum(grants_data$TOTAL.AWARD.FUNDING.AMOUNT, na.rm = TRUE))
+  value = scales::dollar(sum(grants_data$TOTAL.AWARD.FUNDING.AMOUNT, na.rm = TRUE) / 1e9,
+                        suffix = "B",
+                        accuracy = 0.1)
 )
 ```
 
@@ -88,38 +109,302 @@ list(
 )
 ```
 
-## Row
+```{r}
+#| content: valuebox
+#| title: "Affected Institutions"
+#| color: primary
+list(
+  value = length(unique(grants_data$RECIPIENT.NAME)),
+  icon = "building-fill-down",
+  label = "Research Organizations Impacted"
+)
+```
+
+## Row {.tabset}
+
+
+
+### Financial Impact
+
 
 ```{r}
 #| label: "lost-funding-geographic-distribution"
-# Prepare state-level funding data
-state_funding <- grants_data |>
-  dplyr::group_by(RECIPIENT.STATE) |>
+
+# Create the map
+p <- ggplot(states_with_data) +
+  aes(fill = total_funding,
+      text = paste0(
+        NAME, "\n",
+        "Share of Total Cuts: ", scales::percent(percent_of_cuts/100, accuracy = 0.1),
+        "\nShare of Total Grants: ", scales::percent(percent_of_grants/100, accuracy = 0.1),
+        "\nRelative Impact: ", scales::number(relative_impact, accuracy = 0.1),
+        "\nTotal Funding Cut: ", scales::dollar(total_funding),
+        "\nNumber of Grants: ", count
+      )
+  ) + 
+  geom_sf() +
+  viridis::scale_fill_viridis(
+    labels = function(x) paste0("$", round(x/1e6, 1), "M"),
+    name = "Financial\nImpact",
+    na.value = "grey90"
+  ) +
+  theme_void() +
+  theme(
+    legend.position = "right",
+    axis.line.x = element_blank(),
+    axis.line.y = element_blank(),
+    axis.text.x = element_blank(),
+    axis.text.y = element_blank(),
+    axis.title.x = element_blank(),
+    axis.title.y = element_blank()
+  ) +
+  labs(title = "Financial Impact of Research Funding Cuts")
+
+# Make interactive
+plotly::ggplotly(p, tooltip = "text")
+```
+
+
+### Relative Impact
+
+```{r}
+#| label: "lost-funding-relative-impact"
+
+# Create the map
+p <- ggplot(states_with_data) +
+  geom_sf(aes(fill = relative_impact,
+              text = paste0(
+                NAME, "\n",
+                "Share of Total Cuts: ", scales::percent(percent_of_cuts/100, accuracy = 0.1),
+                "\nShare of Total Grants: ", scales::percent(percent_of_grants/100, accuracy = 0.1),
+                "\nRelative Impact: ", scales::number(relative_impact, accuracy = 0.1),
+                "\nTotal Funding Cut: ", scales::dollar(total_funding),
+                "\nNumber of Grants: ", count
+              ))) +
+  viridis::scale_fill_viridis(
+    labels = scales::number_format(accuracy = 0.1),
+    name = "Relative\nImpact",
+    na.value = "grey90"
+  ) +
+  theme_void() +
+  theme(
+    legend.position = "right",
+    axis.line.x = element_blank(),
+    axis.line.y = element_blank(),
+    axis.text.x = element_blank(),
+    axis.text.y = element_blank(),
+    axis.title.x = element_blank(),
+    axis.title.y = element_blank()
+  ) +
+  labs(title = "Relative Impact of Research Funding Cuts",
+       subtitle = "Values > 1 indicate states taking larger cuts relative to their grant count")
+
+# Make interactive
+plotly::ggplotly(p, tooltip = "text")
+```
+
+# Institutions
+
+## Row
+
+```{r}
+# Prepare and summarize the data
+funding_summary <- grants_data |>
+  # Group and calculate metrics
+  dplyr::group_by(RECIPIENT.TYPE) |>
+  dplyr::summarise(
+    total_funding = sum(TOTAL.AWARD.FUNDING.AMOUNT),
+    avg_funding = mean(TOTAL.AWARD.FUNDING.AMOUNT),
+    count = n(),
+    .groups = "drop"
+  ) |>
+  # Create more readable labels for display
+  dplyr::mutate(
+    short_name = case_when(
+      RECIPIENT.TYPE == "PUBLIC/STATE CONTROLLED INSTITUTION OF HIGHER EDUCATION" ~ "Public Universities",
+      RECIPIENT.TYPE == "PRIVATE INSTITUTION OF HIGHER EDUCATION" ~ "Private Universities",
+      RECIPIENT.TYPE == "FOR-PROFIT ORGANIZATION (OTHER THAN SMALL BUSINESS)" ~ "For-Profit Org",
+      RECIPIENT.TYPE == "INDIVIDUAL" ~ "Individual",
+      RECIPIENT.TYPE == "SMALL BUSINESS" ~ "Small Business",
+      RECIPIENT.TYPE == "NON-DOMESTIC (NON-U.S.) ENTITY" ~ "Non-U.S.",
+      RECIPIENT.TYPE == "INDIAN/NATIVE AMERICAN TRIBAL DESIGNATED ORGANIZATION" ~ "Tribal",
+      TRUE ~ "Other"
+    )
+  )
+
+# Create formatted label function for tooltips
+format_funding <- function(x) {
+  scales::dollar_format(scale = 0.001, suffix = "K")(x)
+}
+
+# Create the base ggplot visualization
+base_plot <- ggplot(
+  funding_summary,
+  aes(
+    x = reorder(short_name, -total_funding),
+    y = total_funding/1000,
+    text = paste0(
+      "Institution Type: ", RECIPIENT.TYPE,
+      "\nTotal Funding: ", format_funding(total_funding),
+      "\nAverage Funding: ", format_funding(avg_funding),
+      "\nNumber of Grants: ", count
+    )
+  )
+) +
+  # Add the bars for total funding
+  geom_col(aes(fill = short_name), alpha = 0.8) +
+  # Customize the theme and layout
+  coord_flip() +
+  theme_minimal(base_size = 12) +
+  theme(
+    panel.grid.major.y = element_blank(),
+    panel.grid.minor = element_blank(),
+    plot.title = element_text(
+      face = "bold",
+      size = 14,
+      margin = margin(b = 10)
+    ),
+    plot.subtitle = element_text(
+      color = "grey40",
+      margin = margin(b = 20)
+    ),
+    axis.title = element_text(face = "bold"),
+    plot.caption = element_text(
+      color = "grey40",
+      margin = margin(t = 10)
+    ),
+    legend.position = "none"
+  ) +
+  # Add labels and scales
+  scale_y_continuous(
+    labels = scales::dollar_format(scale = 1, suffix = "K", accuracy = 1),
+    breaks = scales::breaks_pretty(n = 6),
+    expand = expansion(mult = c(0, 0.1))
+  ) +
+  scale_fill_viridis_d() +  # Add colorblind-friendly palette
+  labs(
+    title = "NSF Grant Funding Distribution by Institution Type",
+    subtitle = "Total funding amounts by recipient category",
+    x = NULL,
+    y = "Total Funding Amount",
+    caption = "Source: NSF Grants Data"
+  )
+
+# Convert to interactive plotly object
+interactive_plot <- ggplotly(base_plot, tooltip = "text") |>
+  # Customize the interactive elements
+  layout(
+    hoverlabel = list(
+      align = "left",
+      bgcolor = "white",
+      font = list(size = 12)
+    ),
+    margin = list(l = 120),  # Adjust left margin for labels
+    font = list(family = "Helvetica"),
+    yaxis = list(
+      tickprefix = "$",  # Ensure dollar sign is properly aligned
+      separatethousands = TRUE
+    )
+  )
+
+interactive_plot
+```
+
+
+## Row
+
+```{r}
+#| title: "Most Impacted Institutions"
+institution_impact <- grants_data |>
+  dplyr::group_by(RECIPIENT.NAME, RECIPIENT.STATE) |>
   dplyr::summarise(
     total_funding = sum(TOTAL.AWARD.FUNDING.AMOUNT, na.rm = TRUE),
-    count = dplyr::n()
+    num_grants = n(),
+    avg_grant = mean(TOTAL.AWARD.FUNDING.AMOUNT, na.rm = TRUE)
   ) |>
-  dplyr::mutate(state = tolower(RECIPIENT.STATE))
+  dplyr::arrange(desc(total_funding), desc(num_grants))
 
-# Join with map data
-state_map_data <- dplyr::left_join(us_states, state_funding, by = c("region" = "state"))
+DT::datatable(institution_impact,
+  options = list(
+    pageLength = 20,
+    scrollY = "400px"
+  ),
+  colnames = c("Institution", "State", "Total Funding Lost", 
+               "Number of Grants", "Average Grant Size"),
+  rownames = FALSE
+) |>
+  DT::formatCurrency(columns = c("total_funding", "avg_grant"))
+```
 
-# Create base map
-p <- ggplot2::ggplot() +
-  ggplot2::geom_polygon(data = state_map_data,
-                        ggplot2::aes(x = long, y = lat, group = group,
-                                   fill = total_funding,
-                                   text = paste0(stringr::str_to_title(region), "\n",
-                                               "Total Funding: ", scales::dollar(total_funding),
-                                               "\nGrants: ", count))) +
-  ggplot2::coord_map() +
-  viridis::scale_fill_viridis(labels = scales::dollar_format()) +
-  ggplot2::theme_minimal() +
-  ggplot2::labs(fill = "Total Funding Lost",
-                title = "Geographic Distribution of Lost NSF Funding")
+# Categories
 
+```{r}
+#| label: "category-combinations"
+#| include: false
+# Combine categories present in each grant
+category_combinations <- grants_data |>
+  dplyr::select(
+    AWARD.ID,
+    SOCIAL.JUSTICE.CATEGORY,
+    RACE.CATEGORY,
+    GENDER.CATEGORY,
+    ENVIRONMENTAL.JUSTICE.CATEGORY,
+    TOTAL.AWARD.FUNDING.AMOUNT
+  ) |>
+  # Replace NA with empty string
+  dplyr::mutate(dplyr::across(
+    dplyr::ends_with("CATEGORY"),
+    ~ifelse(is.na(.), "", gsub("\\.CATEGORY$", "", .x))
+  )) |>
+  # Create combination string
+  dplyr::rowwise() |>
+  dplyr::mutate(
+    categories = paste(
+      sort(
+        c(
+          SOCIAL.JUSTICE.CATEGORY,
+          RACE.CATEGORY,
+          GENDER.CATEGORY,
+          ENVIRONMENTAL.JUSTICE.CATEGORY
+        )[c(SOCIAL.JUSTICE.CATEGORY,
+           RACE.CATEGORY,
+           GENDER.CATEGORY,
+           ENVIRONMENTAL.JUSTICE.CATEGORY) != ""]
+      ),
+      collapse = " + "
+    )
+  ) |>
+  # Remove empty combinations
+  dplyr::filter(categories != "") |>
+  # Group and summarize
+  dplyr::group_by(categories) |>
+  dplyr::summarise(
+    count = dplyr::n(),
+    total_funding = sum(TOTAL.AWARD.FUNDING.AMOUNT),
+    .groups = 'drop'
+  ) |>
+  # Sort by count
+  dplyr::arrange(dplyr::desc(count))
+```
 
-plotly::ggplotly(p, tooltip = "text")
+## Row
+
+```{r}
+#| label: "category-combinations-euler-diagram"
+
+# Prepare data for euler
+euler_data <- grants_data |>
+  dplyr::select(
+    `Social` = SOCIAL.JUSTICE.CATEGORY,
+    `Race` = RACE.CATEGORY,
+    `Gender` = GENDER.CATEGORY,
+    `Environmental` = ENVIRONMENTAL.JUSTICE.CATEGORY
+  ) |>
+  dplyr::mutate(dplyr::across(dplyr::everything(), ~!is.na(.x)))
+
+plot(eulerr::euler(euler_data),
+     quantities = TRUE,
+     main = "Overlap between Grant Categories")
 ```
 
 
@@ -132,8 +417,11 @@ plotly::ggplotly(p, tooltip = "text")
 #| label: "lost-funding-database-interactive-viewer"
 DT::datatable(
   grants_data |>
+    dplyr::mutate(
+      AWARD.ID.LINK = paste0("<a href='", USASPENDING.LINK,"'>", AWARD.ID, "</a>")
+    ) |> 
     dplyr::select(
-      AWARD.ID, RECIPIENT.NAME, RECIPIENT.STATE, 
+      AWARD.ID.LINK, RECIPIENT.NAME, RECIPIENT.STATE, 
       TOTAL.AWARD.FUNDING.AMOUNT, NSF.FUNDING.OFFICE,
       NSF.AWARD.TYPE, SOCIAL.JUSTICE.CATEGORY,
       RACE.CATEGORY, GENDER.CATEGORY, 
@@ -148,7 +436,45 @@ DT::datatable(
   ),
   extensions = 'Buttons',
   filter = 'top',
-  rownames = FALSE
+  rownames = FALSE,
+  escape = -1
 ) |>
   DT::formatCurrency(columns = 'TOTAL.AWARD.FUNDING.AMOUNT')
 ```
+
+# About
+
+::: {.card title="Background"}
+
+This dashboard visualizes data from a U.S. Senate Commerce Committee investigation released on February 11, 2025, which identified over 3,400 National Science Foundation (NSF) grants totaling more than $2.05 billion in federal funding. These grants were awarded during the Biden-Harris administration and have been identified for review based on their connection to Diversity, Equity, and Inclusion (DEI) initiatives.
+
+:::
+
+::: {.card title="Current Status"}
+
+Following an Executive Order requiring termination of DEI programs across federal agencies, the NSF has:
+
+- Frozen its annual grant review process
+- Initiated a comprehensive review of all funding activities
+- Begun evaluating existing grants for compliance
+- Started implementing new directives for future funding
+:::
+
+::: {.card title="About the Data"}
+
+The data presented in this dashboard comes from the official 
+Senate Commerce Committee database and is available at:
+[Senate Commerce Committee Database](https://www.commerce.senate.gov/index.cfm?a=files.serve&File_id=94060590-F32F-4944-8810-300E6766B1D6)
+
+For more information about the investigation and findings, see the [official press release](https://www.commerce.senate.gov/2025/2/cruz-led-investigation-uncovers-2-billion-in-woke-dei-grants-at-nsf-releases-full-database).
+:::
+
+
+::: {.card title="Notes on Usage"}
+
+- All financial figures are in U.S. dollars
+- Geographic visualizations include all 50 states and Puerto Rico.
+- Institution classifications follow NSF categorizations
+- Interactive elements allow for detailed exploration of specific grants or institutions
+
+:::
