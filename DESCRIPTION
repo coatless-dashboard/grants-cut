@@ -15,7 +15,8 @@ Imports:
    plotly,
    maps,
    mapproj,
-   viridis
+   viridis,
+   eulerr
 License: AGPL (>= 3)
 Encoding: UTF-8
 VignetteBuilder: quarto

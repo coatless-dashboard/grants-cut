@@ -5,7 +5,9 @@ format:
     theme: cosmo
 ---
 
-```{r setup, include=FALSE}
+```{r}
+#| label: "setup"
+#| include: false
 # Load required packages with explicit namespace calls
 library(tidyverse)
 library(DT)
@@ -46,17 +48,17 @@ us_states <- map_data("state")
 
 # Funding Overview {orientation="rows"}
 
-::: {.card}
+## Row {height="5%"}
+
 This dashboard analyzes NSF grants that have lost funding. Use the interactive visualizations 
 to explore funding patterns across institutions, categories, and geographic regions.
-:::
 
-
-## Column {width=70%}
+## Row {height="20%"}
 
 ```{r}
 #| content: valuebox
 #| title: "Total Funding Lost"
+#| label: "total-funding-lost"
 list(
   icon = "bank",
   color = "danger",
@@ -67,6 +69,7 @@ list(
 ```{r}
 #| content: valuebox
 #| title: "Total Grants Affected"
+#| label: "total-grants-affected"
 list(
   icon = "file-earmark-text",
   color = "warning",
@@ -77,6 +80,7 @@ list(
 ```{r}
 #| content: valuebox
 #| title: "Average Grant Size"
+#| label: "average-grant-size"
 list(
   icon = "calculator",
   color = "info",
@@ -84,10 +88,10 @@ list(
 )
 ```
 
-## Column {height=85%}
+## Row
 
 ```{r}
-#| title: "Geographic Distribution of Lost Funding"
+#| label: "lost-funding-geographic-distribution"
 # Prepare state-level funding data
 state_funding <- grants_data |>
   dplyr::group_by(RECIPIENT.STATE) |>
@@ -125,6 +129,7 @@ plotly::ggplotly(p, tooltip = "text")
 
 ```{r}
 #| title: "Lost Funding Database"
+#| label: "lost-funding-database-interactive-viewer"
 DT::datatable(
   grants_data |>
     dplyr::select(
