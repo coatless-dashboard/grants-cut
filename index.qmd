@@ -83,7 +83,7 @@ list(
   color = "danger",
   value = scales::dollar(sum(grants_data$TOTAL.AWARD.FUNDING.AMOUNT, na.rm = TRUE) / 1e9,
                         suffix = "B",
-                        accuracy = 0.1)
+                        accuracy = 0.001)
 )
 ```
 
