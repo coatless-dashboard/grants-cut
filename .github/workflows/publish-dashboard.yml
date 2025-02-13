@@ -1,4 +1,4 @@
-name: Download WARN Data and Update Dashboard
+name: NSF Grant Cut Dashboard
 on:
   push:
     branches: [main, master]
@@ -9,7 +9,7 @@ on:
   workflow_dispatch: {} # Allows manual triggering
 
 jobs:
-  update-warn-dashboard:
+  nsf-dashboard:
     runs-on: ubuntu-latest
     permissions:
       contents: write
