@@ -64,14 +64,14 @@ all_regions_funding <- grants_data |>
   )
 
 # Get states with AK and HI shifted
-us_states <- states(cb = TRUE, resolution = "20m")
-us_states_shifted <- shift_geometry(us_states) |>
+us_states <- tigris::states(cb = TRUE, resolution = "20m")
+us_states_shifted <- tigris::shift_geometry(us_states) |>
   dplyr::mutate(NAME = toupper(NAME))  # Convert state name to uppercase
 
 
 # Join with funding data
 states_with_data <- us_states_shifted |>
-  left_join(all_regions_funding, by = c("NAME" = "RECIPIENT.STATE"))
+  dplyr::left_join(all_regions_funding, by = c("NAME" = "RECIPIENT.STATE"))
 
 # Download population data from 
 # https://www.census.gov/data/tables/time-series/demo/popest/2020s-state-total.html
@@ -88,11 +88,11 @@ tax_contributions <- readxl::read_xlsx("data/23dbs01t05co.xlsx", skip = 6, col_n
 
 tax_total <- sum(tax_contributions$TotalIndividual)
 tax_contributions <- tax_contributions |>
-  mutate(
+  dplyr::mutate(
     percent_of_individual_federal_taxes_contributed = round((TotalIndividual / tax_total) * 100, 3)
   )
 
-states_with_data <- left_join(states_with_data, tax_contributions[, c("NAME", "percent_of_individual_federal_taxes_contributed")])
+states_with_data <- dplyr::left_join(states_with_data, tax_contributions[, c("NAME", "percent_of_individual_federal_taxes_contributed")])
 
 population <- readxl::read_xlsx("data/NST-EST2024-POP.xlsx", skip = 9, col_names = c("State", "est", "2020", "2021","2022","2023", "est_population")) |>
   dplyr::select(State, est_population) |>
@@ -105,11 +105,11 @@ population <- readxl::read_xlsx("data/NST-EST2024-POP.xlsx", skip = 9, col_names
 
 pop_total <- sum(population$est_population)
 population <- population |>
-  mutate(
+  dplyr::mutate(
     percent_of_pop = round((est_population / pop_total) * 100, 3)
   )
 
-states_with_data <- left_join(states_with_data, population[, c("NAME", "percent_of_pop")])
+states_with_data <- dplyr::left_join(states_with_data, population[, c("NAME", "percent_of_pop")])
 
 
 ```
@@ -175,7 +175,7 @@ list(
 #| label: "lost-funding-geographic-distribution"
 
 # Create the map
-p <- plot_geo(states_with_data,
+p <- plotly::plot_geo(states_with_data,
       locationmode = 'USA-states',
       locations = ~STUSPS    # Changed to use your STUSPS column
     ) |>
@@ -194,12 +194,12 @@ p <- plot_geo(states_with_data,
         ),
         hoverinfo = 'text',
         colorscale = 'Viridis'
-      ) %>%
-      layout(
+      ) |>
+      plotly::layout(
         geo = list(scope = 'usa'),
         title = "Financial Impact of Research Funding Cuts"
-      ) %>%
-      colorbar(
+      ) |>
+      plotly::colorbar(
         title = "Financial Impact",
         tickprefix = "$",
         ticksuffix = "M",
@@ -223,11 +223,11 @@ p
 #| label: "lost-funding-relative-impact"
 
 # Create the map
-p <- plot_geo(states_with_data,
+p <- plotly::plot_geo(states_with_data,
       locationmode = 'USA-states',
       locations = ~STUSPS    # Changed to use your STUSPS column
-    ) %>%
-      add_trace(
+    ) |>
+      plotly::add_trace(
         z = ~relative_impact,
         text = ~paste0(
           NAME, "\n",
@@ -515,7 +515,7 @@ Following an Executive Order requiring termination of DEI programs across federa
 
 The data presented in this dashboard comes from the official 
 Senate Commerce Committee database and is available at:
-[Senate Commerce Committee Database](https://www.commerce.senate.gov/index.cfm?a=files.serve&File_id=94060590-F32F-4944-8810-300E6766B1D6)
+[Senate Commerce Committee Database](https://www.commerce.senate.gov/index.cfm?a=files.serve&File_id=94060590-F32F-4944-8810-300E6766B1D6). Supplemental data sources include: [U.S. Census Population Estimates (2020-2024)](https://www.census.gov/data/tables/time-series/demo/popest/2020s-state-total.html) and [IRS Tax Collections (2023)](https://www.irs.gov/statistics/soi-tax-stats-gross-collections-by-type-of-tax-and-state-irs-data-book-table-5).
 
 For more information about the investigation and findings, see the [official press release](https://www.commerce.senate.gov/2025/2/cruz-led-investigation-uncovers-2-billion-in-woke-dei-grants-at-nsf-releases-full-database).
 
